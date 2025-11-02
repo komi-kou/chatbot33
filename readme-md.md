@@ -1,31 +1,29 @@
-# チャットワーク返信アシスタント（Gemini 2.5 Pro）
+# チャットワーク返信アシスタント
 
 AIを使ってチャットワークのメッセージに対する返信案を自動生成するWebアプリケーションです。
 
 ## 機能
 
 - ✅ Chatworkの新着メッセージを一覧表示
-- ✅ Gemini 2.5 Proによる高品質な返信文の自動生成
+- ✅ Claude AIによる返信文の自動生成
 - ✅ あなた専用の口調・文体で返信作成
 - ✅ ワンクリックでコピー
 - ✅ スマホ・PC両対応
 
-## Vercelデプロイ手順
+## セットアップ手順
 
-### 1. GitHubリポジトリの準備
+### 1. GitHubリポジトリの作成
 
 1. GitHubで新しいリポジトリを作成
 2. 以下のファイル構成でアップロード：
 
 ```
 chatwork-reply-assistant/
-├── api/
-│   └── index.js
-├── index-free.html
-├── gemini-proxy.js
-├── package.json
+├── index.html
 ├── vercel.json
-└── README.md
+└── api/
+    ├── chatwork-proxy.js
+    └── claude-proxy.js
 ```
 
 ### 2. Vercelへのデプロイ
@@ -45,15 +43,15 @@ chatwork-reply-assistant/
 1. **設定タブ**を開く
 2. **Chatwork APIトークン**を入力
    - [ここから取得](https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php)
-3. **Gemini APIキー**を入力
-   - [Google AI Studio](https://aistudio.google.com/app/apikey)から取得
+3. **Claude APIキー**を入力
+   - [Anthropic Console](https://console.anthropic.com)から取得
 4. 「設定を保存」をクリック
 
 ## 使い方
 
 1. **メッセージタブ**で「新着メッセージをチェック」をクリック
 2. 返信したいメッセージを選択
-3. 「返信案を作成（Gemini 2.5 Pro）」をクリック
+3. 「返信案を作成」をクリック
 4. 生成された返信文を「コピー」してチャットワークに貼り付け
 
 ## スマホでの使い方
@@ -62,20 +60,21 @@ chatwork-reply-assistant/
 2. ブラウザのメニューから「ホーム画面に追加」
 3. アプリとして起動可能
 
-## API制限
-
-- **Gemini 2.5 Pro**: 1日100リクエスト（無料枠）
-- **Chatwork API**: 制限はアカウント設定による
-
 ## トラブルシューティング
 
 ### メッセージが取得できない
+
 - Chatwork APIトークンが正しいか確認
 - デバッグタブでエラーログを確認
 
 ### 返信案が生成されない
-- Gemini APIキーが正しいか確認
+
+- Claude APIキーが正しいか確認
 - APIの利用制限に達していないか確認
+
+### その他の問題
+
+デバッグタブでログを確認し、エラー内容を確認してください。
 
 ## セキュリティについて
 

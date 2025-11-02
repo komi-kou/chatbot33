@@ -1,0 +1,23 @@
+{
+  "name": "chatwork-reply-assistant",
+  "version": "1.0.0",
+  "description": "チャットワーク返信アシスタント（Gemini 2.5 Pro）",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js",
+    "dev": "node api/index.js",
+    "build": "echo 'No build step required'"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "chatwork",
+    "ai",
+    "gemini",
+    "reply-assistant"
+  ],
+  "author": "kou",
+  "license": "MIT"
+}

@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>チャットワーク返信アシスタント</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        // Lucide Icons (simplified)
+        const RefreshCw = ({ className }) => (
+            <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+            </svg>
+        );
+        
+        const MessageSquare = ({ className }) => (
+            <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+        );
+        
+        const Settings = ({ className }) => (
+            <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m9-9h-6m-6 0H3"/>
+            </svg>
+        );
+        
+        const Copy = ({ className }) => (
+            <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+        );
+        
+        const Check = ({ className }) => (
+            <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="20 6 9 17 4 12"/>
+            </svg>
+        );
+        
+        const AlertCircle = ({ className }) => (
+            <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+        );
+
+        function ChatworkReplyAssistant() {
+            const [activeTab, setActiveTab] = useState('messages');
+            const [chatworkToken, setChatworkToken] = useState('');
+            const [claudeApiKey, setClaudeApiKey] = useState('');
+            const [messages, setMessages] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [generatingFor, setGeneratingFor] = useState(null);
+            const [replyText, setReplyText] = useState('');
+            const [copied, setCopied] = useState(false);
+            const [errorLog, setErrorLog] = useState([]);
+
+            useEffect(() => {
+                const savedChatworkToken = localStorage.getItem('chatworkToken') || '10e7538af625f74890e0f0bc4747c976';
+                const savedClaudeApiKey = localStorage.getItem('claudeApiKey') || '';
+                setChatworkToken(savedChatworkToken);
+                setClaudeApiKey(savedClaudeApiKey);
+            }, []);
+
+            const addErrorLog = (message) => {
+                setErrorLog(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`]);
+            };
+
+            const saveSettings = () => {
+                localStorage.setItem('chatworkToken', chatworkToken);
+                localStorage.setItem('claudeApiKey', claudeApiKey);
+                alert('設定を保存しました');
+                setActiveTab('messages');
+            };
+
+            const fetchMessages = async () => {
+                if (!chatworkToken) {
+                    alert('Chatwork APIトークンを設定してください');
+                    setActiveTab('settings');
+                    return;
+                }
+
+                setLoading(true);
+                addErrorLog('メッセージ取得開始');
+                
+                try {
+                    const apiBase = 'http://localhost:3001/api';
+                    
+                    addErrorLog('ルーム一覧取得中...');
+                    const roomsResponse = await fetch(`${apiBase}/chatwork-proxy`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            endpoint: 'rooms',
+                            token: chatworkToken
+                        })
+                    });
+
+                    if (!roomsResponse.ok) {
+                        const error = await roomsResponse.json();
+                        throw new Error(error.error || 'ルーム取得失敗');
+                    }
+
+                    const rooms = await roomsResponse.json();
+                    addErrorLog(`ルーム数: ${rooms.length}`);
+                    
+                    // 未読メッセージがあるルームのみをフィルタ
+                    const unreadRooms = rooms.filter(room => 
+                        room.unread_num > 0 || room.mention_num > 0
+                    );
+                    addErrorLog(`未読があるルーム数: ${unreadRooms.length}`);
+                    
+                    const messagePromises = unreadRooms.slice(0, 10).map(async (room) => {
+                        try {
+                            addErrorLog(`ルーム ${room.name} のメッセージ取得中...`);
+                            const msgResponse = await fetch(`${apiBase}/chatwork-proxy`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    endpoint: `rooms/${room.room_id}/messages`,
+                                    token: chatworkToken,
+                                    params: { force: 1 }
+                                })
+                            });
+                            
+                            if (!msgResponse.ok) {
+                                addErrorLog(`ルーム ${room.room_id} のメッセージ取得失敗`);
+                                return null;
+                            }
+                            
+                            const msgs = await msgResponse.json();
+                            addErrorLog(`ルーム ${room.name}: ${msgs.length}件のメッセージ (未読: ${room.unread_num}件)`);
+                            
+                            // メッセージをクリーンアップ（[info]タグや[download]タグを除去）
+                            const cleanMessage = (body) => {
+                                if (!body) return '';
+                                // [info]...[/info], [download]...[/download]タグを除去
+                                let cleaned = body.replace(/\[info\].*?\[\/info\]/gs, '');
+                                cleaned = cleaned.replace(/\[download:.*?\].*?\[\/download\]/gs, '');
+                                // [rp]タグを「返信先:」に置換
+                                cleaned = cleaned.replace(/\[rp aid=\d+ to=\d+-\d+\]/g, '返信先: ');
+                                // その他の[タグ]を除去
+                                cleaned = cleaned.replace(/\[.*?\]/g, '');
+                                // 複数の空行を1つに
+                                cleaned = cleaned.replace(/\n\s*\n/g, '\n');
+                                return cleaned.trim();
+                            };
+                            
+                            // 最新の未読メッセージを取得（自分以外のメッセージ）
+                            const sortedMessages = msgs
+                                .filter(m => m.account && m.account.account_id !== room.my_account_id)
+                                .sort((a, b) => b.send_time - a.send_time);
+                            
+                            const latestMsg = sortedMessages[0];
+                            
+                            if (latestMsg) {
+                                return {
+                                    roomId: room.room_id,
+                                    roomName: room.name,
+                                    senderName: latestMsg.account.name,
+                                    message: cleanMessage(latestMsg.body),
+                                    messageId: latestMsg.message_id,
+                                    sendTime: latestMsg.send_time,
+                                    unreadCount: room.unread_num,
+                                    isUnread: true
+                                };
+                            }
+                            return null;
+                        } catch (error) {
+                            addErrorLog(`ルーム ${room.room_id} エラー: ${error.message}`);
+                            return null;
+                        }
+                    });
+
+                    const allMessages = await Promise.all(messagePromises);
+                    const filteredMessages = allMessages.filter(m => m !== null);
+                    
+                    addErrorLog(`取得完了: ${filteredMessages.length}件`);
+                    setMessages(filteredMessages);
+                    
+                    if (filteredMessages.length === 0) {
+                        alert('未読メッセージはありません');
+                    } else {
+                        alert(`${filteredMessages.length}件の未読メッセージが見つかりました`);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    addErrorLog(`致命的エラー: ${error.message}`);
+                    alert('メッセージの取得に失敗しました: ' + error.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const generateReply = async (message) => {
+                if (!claudeApiKey) {
+                    alert('Claude APIキーを設定してください');
+                    setActiveTab('settings');
+                    return;
+                }
+
+                setGeneratingFor(message.messageId);
+                setReplyText('');
+                addErrorLog(`返信生成開始: ${message.senderName}`);
+
+                const systemPrompt = `あなたは丁寧で親しみやすいチャットアシスタントです。以下のガイドラインに従って返信文を作成してください。
+
+# 返信のガイドライン
+## 1. 基本的な文体
+- 丁寧な「です／ます」調を基本とする
+- 相手に合わせた適切な敬語レベルを使用
+- 分かりやすく簡潔な表現を心がける
+
+## 2. 構成と読みやすさ
+- 要点を整理して伝える
+- 長文の場合は適切に段落分けする
+- 箇条書きや番号付けで情報を整理
+
+## 3. コミュニケーション
+- 相手の立場や気持ちに配慮した返信
+- 質問内容をしっかり理解して回答
+- 必要に応じて追加情報や代替案を提供
+
+## 4. 返信の基本方針
+- まず相手のメッセージを理解し、共感を示す
+- 明確で具体的な回答を提供
+- 相手のニーズに応じた情報量の調整
+
+受信メッセージの内容から、適切な返信を生成してください。
+- 質問には的確に回答
+- 相談には適切なアドバイスを提供
+- 感謝や挨拶には丁寧に応答
+- その他は状況に応じた返信
+
+返信文のみを出力してください。`;
+
+                try {
+                    const apiBase = 'http://localhost:3001/api';
+                    const response = await fetch(`${apiBase}/claude-proxy`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            apiKey: claudeApiKey,
+                            systemPrompt: systemPrompt,
+                            userMessage: `送信者: ${message.senderName}\n\n受信メッセージ:\n${message.message}\n\n上記に対する返信を作成してください。`
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error || 'Claude API呼び出し失敗');
+                    }
+
+                    const data = await response.json();
+                    const reply = data.reply;
+                    addErrorLog(`返信生成成功: ${reply.substring(0, 50)}...`);
+                    setReplyText(reply);
+                } catch (error) {
+                    console.error('Error:', error);
+                    addErrorLog(`返信生成エラー: ${error.message}`);
+                    alert('返信案の生成に失敗しました: ' + error.message);
+                } finally {
+                    setGeneratingFor(null);
+                }
+            };
+
+            const copyToClipboard = () => {
+                navigator.clipboard.writeText(replyText);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+                    <div className="max-w-2xl mx-auto">
+                        <div className="bg-white rounded-t-xl shadow-lg p-6">
+                            <h1 className="text-2xl font-bold text-gray-800 mb-2">チャットワーク返信アシスタント</h1>
+                            <p className="text-gray-600 text-sm">AIが最適な返信文を提案します</p>
+                        </div>
+
+                        <div className="flex bg-white border-t border-gray-200">
+                            <button
+                                onClick={() => setActiveTab('messages')}
+                                className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+                                    activeTab === 'messages'
+                                        ? 'bg-indigo-500 text-white'
+                                        : 'bg-white text-gray-600 hover:bg-gray-50'
+                                }`}
+                            >
+                                <MessageSquare className="inline-block w-5 h-5 mr-2" />
+                                メッセージ
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('settings')}
+                                className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+                                    activeTab === 'settings'
+                                        ? 'bg-indigo-500 text-white'
+                                        : 'bg-white text-gray-600 hover:bg-gray-50'
+                                }`}
+                            >
+                                <Settings className="inline-block w-5 h-5 mr-2" />
+                                設定
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('debug')}
+                                className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+                                    activeTab === 'debug'
+                                        ? 'bg-indigo-500 text-white'
+                                        : 'bg-white text-gray-600 hover:bg-gray-50'
+                                }`}
+                            >
+                                <AlertCircle className="inline-block w-5 h-5 mr-2" />
+                                デバッグ
+                            </button>
+                        </div>
+
+                        <div className="bg-white rounded-b-xl shadow-lg p-6 min-h-[500px]">
+                            {activeTab === 'messages' ? (
+                                <div>
+                                    <button
+                                        onClick={fetchMessages}
+                                        disabled={loading}
+                                        className="w-full mb-4 py-3 px-4 bg-indigo-500 text-white rounded-lg font-medium hover:bg-indigo-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+                                    >
+                                        <RefreshCw className={`w-5 h-5 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                                        {loading ? '読み込み中...' : '未読メッセージをチェック'}
+                                    </button>
+
+                                    {messages.length === 0 ? (
+                                        <div className="text-center py-12 text-gray-500">
+                                            <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                                            <p>「未読メッセージをチェック」を押してください</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {messages.map((msg) => (
+                                                <div key={msg.messageId} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors relative">
+                                                    {msg.isUnread && (
+                                                        <span className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                                                            未読 {msg.unreadCount}件
+                                                        </span>
+                                                    )}
+                                                    <div className="flex items-start justify-between mb-2">
+                                                        <div>
+                                                            <h3 className="font-bold text-gray-800">{msg.senderName}</h3>
+                                                            <p className="text-xs text-gray-500">{msg.roomName}</p>
+                                                        </div>
+                                                    </div>
+                                                    <p className="text-gray-700 text-sm mb-3 whitespace-pre-wrap">{msg.message.substring(0, 150)}...</p>
+                                                    <button
+                                                        onClick={() => generateReply(msg)}
+                                                        disabled={generatingFor === msg.messageId}
+                                                        className="w-full py-2 px-4 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 disabled:bg-gray-300 transition-colors text-sm"
+                                                    >
+                                                        {generatingFor === msg.messageId ? '生成中...' : '返信案を作成'}
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {replyText && (
+                                        <div className="mt-6 border-t pt-6">
+                                            <h3 className="font-bold text-lg mb-3 text-gray-800">生成された返信案</h3>
+                                            <div className="bg-gray-50 rounded-lg p-4 mb-3">
+                                                <pre className="whitespace-pre-wrap text-sm text-gray-800 font-sans">{replyText}</pre>
+                                            </div>
+                                            <button
+                                                onClick={copyToClipboard}
+                                                className="w-full py-3 px-4 bg-indigo-500 text-white rounded-lg font-medium hover:bg-indigo-600 transition-colors flex items-center justify-center"
+                                            >
+                                                {copied ? (
+                                                    <>
+                                                        <Check className="w-5 h-5 mr-2" />
+                                                        コピーしました！
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Copy className="w-5 h-5 mr-2" />
+                                                        返信文をコピー
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : activeTab === 'settings' ? (
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Chatwork APIトークン
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={chatworkToken}
+                                            onChange={(e) => setChatworkToken(e.target.value)}
+                                            placeholder="Chatwork APIトークンを入力"
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Claude APIキー
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={claudeApiKey}
+                                            onChange={(e) => setClaudeApiKey(e.target.value)}
+                                            placeholder="Claude APIキーを入力"
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        />
+                                    </div>
+
+                                    <button
+                                        onClick={saveSettings}
+                                        className="w-full py-3 px-4 bg-indigo-500 text-white rounded-lg font-medium hover:bg-indigo-600 transition-colors"
+                                    >
+                                        設定を保存
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <h3 className="font-bold text-lg mb-3">デバッグログ</h3>
+                                    <div className="bg-gray-900 text-green-400 rounded-lg p-4 h-96 overflow-y-auto font-mono text-xs">
+                                        {errorLog.length === 0 ? (
+                                            <p>ログはまだありません</p>
+                                        ) : (
+                                            errorLog.map((log, index) => (
+                                                <div key={index} className="mb-1">{log}</div>
+                                            ))
+                                        )}
+                                    </div>
+                                    <button
+                                        onClick={() => setErrorLog([])}
+                                        className="px-4 py-2 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                                    >
+                                        ログをクリア
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ChatworkReplyAssistant />);
+    </script>
+</body>
+</html>
